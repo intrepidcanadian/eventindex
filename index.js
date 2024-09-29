@@ -2,8 +2,6 @@ require("dotenv").config();
 const { ethers } = require("ethers");
 const { createClient } = require("@supabase/supabase-js");
 
-const poolABI = require("./abis/poolAbi.js");
-const nfpmABI = require("./abis/nfpmAbi.js");
 const {
   poolContractAddress,
   nonFungiblePositionManagerContractAddress,
@@ -17,24 +15,6 @@ const supabase = createClient(
 );
 
 const provider = new ethers.JsonRpcProvider(process.env.CONFLUXSCAN_URL);
-
-const poolContract = new ethers.Contract(
-  poolContractAddress,
-  poolABI,
-  provider
-);
-
-const nfpmContract = new ethers.Contract(
-  nonFungiblePositionManagerContractAddress,
-  nfpmABI,
-  provider
-);
-
-// this grabs the transfer events from the blockchain for the nfpm contract
-// the filter provides the address, block range, and the event topic
-// the event topic is the keccak256 hash of the event signature
-// the event signature is the function name and the types of the arguments
-// the arguments provided in ethers.id are not spaced out, and are in order of what is expected for the function.
 
 const fetchTransferEvents = async (fromBlock, toBlock) => {
   const transferTopic = ethers.id("Transfer(address,address,uint256)");
@@ -79,6 +59,7 @@ const fetchTransferEvents = async (fromBlock, toBlock) => {
   }
 };
 
+
 const fetchTransferTokenEventsAmount0 = async (fromBlock, toBlock) => {
   const transferTopic = ethers.id("Transfer(address,address,uint256)");
   const transferTokenFilter = {
@@ -87,10 +68,7 @@ const fetchTransferTokenEventsAmount0 = async (fromBlock, toBlock) => {
     toBlock,
     topics: [transferTopic],
   };
-
   const logs = await provider.getLogs(transferTokenFilter);
-
-  console.log(logs);
 
   for (const log of logs) {
     const from = log.topics[1];
@@ -133,20 +111,18 @@ const fetchTransferTokenEventsAmount1 = async (fromBlock, toBlock) => {
 
   const logs = await provider.getLogs(transferTokenFilter);
 
-  console.log(logs);
-
   for (const log of logs) {
     const from = log.topics[1];
     const to = log.topics[2];
+
+    const fromAddress = ethers.getAddress("0x" + from.slice(26));
+    const toAddress = ethers.getAddress("0x" + to.slice(26));
 
     const abiCoder = new ethers.AbiCoder();
     const [value] = abiCoder.decode(["uint256"], log.data);
 
     const block = await provider.getBlock(log.blockNumber);
     const timestamp = new Date(block.timestamp * 1000).toISOString();
-
-    const fromAddress = ethers.getAddress("0x" + from.slice(26));
-    const toAddress = ethers.getAddress("0x" + to.slice(26));
 
     console.log(
       `USDT added to liquidity by ${fromAddress} to ${toAddress} with value ${ethers.formatUnits(
@@ -219,19 +195,11 @@ const fetchLiquidityEvents = async (fromBlock, toBlock) => {
   };
 
   const logsMint = await provider.getLogs(filterMint);
-  const logsBurn = await provider.getLogs(filterBurn);
   const logsIncreaseLiquidity = await provider.getLogs(filterIncreaseLiquidity);
-  const logsDecreaseLiquidity = await provider.getLogs(filterDecreaseLiquidity);
   const logsSwap = await provider.getLogs(filterSwap);
 
   console.log(`Found ${logsMint.length} for mint logs`);
-  console.log(`Found ${logsBurn.length} for burn logs`);
-  console.log(
-    `Found ${logsIncreaseLiquidity.length} for increase liquidity logs`
-  );
-  console.log(
-    `Found ${logsDecreaseLiquidity.length} for decrease liquidity logs`
-  );
+  console.log(`Found ${logsIncreaseLiquidity.length} for increase liquidity logs`);
   console.log(`Found ${logsSwap.length} for swap logs`);
 
   if (logsMint.length > 0) {
@@ -240,8 +208,10 @@ const fetchLiquidityEvents = async (fromBlock, toBlock) => {
         const [ownerTopic, tickLowerTopic, tickUpperTopic] =
           log.topics.slice(1);
         const owner = ethers.getAddress("0x" + ownerTopic.slice(26));
-        const tickLower = tickLowerTopic;
-        const tickUpper = tickUpperTopic;
+
+        const tickLower = ethers.AbiCoder.defaultAbiCoder().decode(["int24"], tickLowerTopic)[0];
+        const tickUpper = ethers.AbiCoder.defaultAbiCoder().decode(["int24"], tickUpperTopic)[0];
+  
         const abiCoder = new ethers.AbiCoder();
         const [sender, amount, amount0, amount1] = abiCoder.decode(
           ["address", "uint128", "uint256", "uint256"],
@@ -253,8 +223,8 @@ const fetchLiquidityEvents = async (fromBlock, toBlock) => {
         console.log("Mint event detected:", {
           sender,
           owner,
-          tickLower: tickLower,
-          tickUpper: tickUpper,
+          tickLower: tickLower.toString(),
+          tickUpper: tickUpper.toString(),
           amount: ethers.formatUnits(amount, 18),
           amount0: ethers.formatUnits(amount0, 18),
           amount1: ethers.formatUnits(amount1, 18),
@@ -288,7 +258,7 @@ const fetchLiquidityEvents = async (fromBlock, toBlock) => {
           amount0: ethers.formatUnits(amount0, 18),
           amount1: ethers.formatUnits(amount1, 18),
           sqrtPriceX96: sqrtPriceX96.toString(),
-          liquidity: liquidity.toString(),
+          liquidity: ethers.formatUnits(liquidity,18),
           tick: tick.toString(),
           transactionHash: log.transactionHash,
           timestamp: new Date(block.timestamp * 1000).toISOString(),
@@ -298,6 +268,36 @@ const fetchLiquidityEvents = async (fromBlock, toBlock) => {
       console.error("Error fetching mint logs:", error);
     }
   }
+
+if (logsIncreaseLiquidity.length > 0) {
+
+  try {
+
+    for (const log of logsIncreaseLiquidity)  {
+      const [tokenIdTopic] = log.topics.slice(1);
+      const tokenId = ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], tokenIdTopic)[0];
+
+      const abiCoder = new ethers.AbiCoder();
+
+      const [liquidity, amount0, amount1] = abiCoder.decode(["uint128","uint256","uint256"], log.data);
+
+      const block = await provider.getBlock(log.blockNumber);
+      const timestamp = new Date(block.timestamp * 1000).toISOString();
+
+      console.log("Increase liquidity event detected:", {
+        tokenId: tokenId.toString(),
+        liquidity: ethers.formatUnits(liquidity,18),
+        amount0: ethers.formatUnits(amount0,18),
+        amount1: ethers.formatUnits(amount1,18),
+        transactionHash: log.transactionHash,
+        timestamp: timestamp,
+      });
+    }
+  } catch (error) {
+    console.error("Error fetching increase liquidity logs:", error);
+  }
+}
+
 };
 
 const fetchEvents = async () => {
@@ -320,5 +320,5 @@ const fetchEvents = async () => {
 };
 
 console.log("Starting application...");
-setInterval(fetchEvents, 60000);
-console.log("Application started. Fetching events every 1 minute.");
+setInterval(fetchEvents, 30000);
+console.log("Application started. Fetching events every 30 seconds.");

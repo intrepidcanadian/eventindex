@@ -1,20 +1,63 @@
-# Reading Events on Block Explorer
+# Reading Events & Logs on Block Explorer
 
 This guide will help you understand how to read events on a block explorer for your Conflux App project by setting up a backend database on supabase.
 
-The advantages of storing blockchain data in a web2 server is quicker retrieval of data. While all the data is on the blockchain explorer, there are many events emitted and querying the blockchain data without a node can require many API calls to search and filter.
+While all the data is on the blockchain, the advantages of storing blockchain data (and making an additional copy of certain events) in a web2 server is quicker retrieval of data. 
 
-What is important to note is that the first array of the log is always the event signature hash (i.e. log.topics[0]). To access the indexed paramaters, you can slice off the first element to obtain the remaining indexed data. If the data is not indexed (can check the ABI to see which data is indexed), then they would be in the data field. 
+Let's use this transaction hash and the event log as example. [Example Event Logs](https://evmtestnet.confluxscan.io/tx/0xf2485b451b4dafe79542da7eef666c6710921e1e9c51a041bffea65492b32fcc?tab=logs)
 
-For example, the below would be for the Mint function of a Defi App:
+In this transaction hash, multiple contracts emit events during this transaction.
 
-- log.topics[0] - Event signature hash
-- log.topics[1] - sender (indexed address)
-- log.topics[2] - owner (indexed address)
-- log.topics[3] - tickLower (indexed int24)
-- log.topics[4] - tickUpper (indexed int24)
+- The first log is a transfer on the USDC faucet contract address. The event shows that USDC has moved from one address to another.
 
-With the remaining 3 non-indexed data in the data field (can check the ABI name to see what they are), in which case, this repo would have them representing amount, amount0, and amount1. To extract this information, you would need to decode it.
+- To query this particular event for the USDC contract, we need to specify the event signature below, and the contract address. 
+
+```javascript
+const transferTopic = ethers.id("Transfer(address,address,uint256)");
+  const transferTokenFilter = {
+    address: usdcContractAddress,
+    fromBlock,
+    toBlock,
+    topics: [transferTopic],
+  };
+  const logs = await provider.getLogs(transferTokenFilter);
+```
+
+- Here, we are querying the blockchain explorer based on contract address, block range, and by the event signature. 
+
+- In the id function, we are hashing the function and the types of the events in the transfer function. Note that at maximum, there are three indexed fields. In this case, the first being the event signature (which is the hash of "Transfer(address,address,uint256)", the second being the address from, and third being the address to).
+
+- What is important to note is that the first array of the log is always the event signature hash. 
+
+- To access the indexed paramaters, you can slice off the first element to obtain the remaining indexed data. If we were to use logs as the object retrieved, assuming there are multiple events in the block range.
+
+```javascript
+ for (const log of logs) {
+    const from = log.topics[1];
+    const to = log.topics[2];
+    const fromAddress = ethers.getAddress("0x" + from.slice(26));
+    const toAddress = ethers.getAddress("0x" + to.slice(26));
+    console.log(`There has been a transfer of USDC from ${fromAddress} to ${toAddress})
+    }
+```
+
+or
+
+```javascript
+for (const log of logs) {
+    const [from, to] = log.topics.slice(1);
+    const fromAddress = ethers.getAddress("0x" + from.slice(26));
+    const toAddress = ethers.getAddress("0x" + to.slice(26));
+    console.log(`There has been a transfer of USDC from ${fromAddress} to ${toAddress})
+}
+```
+
+- Since the number o USDC tokens is not indexed, to extract the value, we would need to decode the data field. The data field of USDC is "uint256" and we need to specify that is what we are decoding for.
+
+```javascript
+    const abiCoder = new ethers.AbiCoder();
+    const [value] = abiCoder.decode(["uint256"],log.data);
+```
 
 ## Using the Script to Fetch Events
 
@@ -23,8 +66,8 @@ Here is an example of how to use script to fetch events and the breakdown of the
 ### Script Breakdown
 
 1. **Environment Setup**: 
-   - `require("dotenv").config();` loads environment variables from a `.env` file. This is where I place the following environmental variables. (1) The Supabase URL, (2) The Supabase Key and (3) The RPC URL where you can append the API key for higher rate limits. You do not need to pay to get a higher rate limit for the testnet - however you do need to obtain an API key. [Network Endpoints](https://doc.confluxnetwork.org/docs/espace/network-endpoints)
-   - `const { ethers } = require("ethers");` and `const { createClient } = require("@supabase/supabase-js");` import necessary libraries. In this case, ethers is used to read the events (and set up the contract instances) and the supabase is used to create a connection with supabase. Think of supabase as essentially a SQL server.
+   - `require("dotenv").config();` loads environment variables from a `.env` file. This is where I place the following environmental variables. (1) The Supabase URL, (2) The Supabase Key and (3) The RPC URL where you can append the API key for higher rate limits to read the Conflux blockchain. You do not need to pay to get a higher rate limit for the testnet - however you do need to obtain an API key. [Network Endpoints](https://doc.confluxnetwork.org/docs/espace/network-endpoints)
+   - `const { ethers } = require("ethers");` and `const { createClient } = require("@supabase/supabase-js");` import necessary libraries. In this case, the ethers library is used to read the events, extract event signatures, decode data and format numbers. There are numerous emitted per various contracts (i.e. pool address, and the non-fungible position manager) and the supabase is used to create a connection so that data can be inserted into its SQL server.
 
 ```javascript
 require("dotenv").config();
@@ -39,100 +82,85 @@ const supabase = createClient(
 
 // Initialize Ethereum provider
 const provider = new ethers.JsonRpcProvider(process.env.CONFLUXSCAN_URL);
-
-// Initialize contracts
-const poolContract = new ethers.Contract(poolContractAddress, poolABI, provider);
-const nfpmContract = new ethers.Contract(
-    nonFungiblePositionManagerContractAddress,
-    nfpmABI,
-    provider
-);
-
-// This is a helper function to decode int24 values
-function decodeInt24(hexString) {
-    let value = BigInt(hexString);
-    value = value & BigInt(0xffffff);
-    if (value > BigInt(0x7fffff)) {
-        value -= BigInt(0x1000000);
-    }
-    return Number(value);
-}
-
 ```
 
-// Function to fetch transfer events
-// The filter consists of the contract you want to get the logs from, the block range you want to grab logs, and the event topic
-// the event topic consists of the function name and the outputs expected
-// for example, for transfer, the abi will show the following:
+2. **Fetching Events**: 
+
+- To formulate the event signature, check the ABI of the contract compiled. For example, if the ABI for the mint function was the following:
 
 ```javascript
-{
-    anonymous: false,
-    inputs: [
+  {
+      anonymous: false,
+      inputs: [
         {
-            indexed: true,
-            internalType: "address",
-            name: "from",
-            type: "address",
+          indexed: true,
+          internalType: "address",
+          name: "sender",
+          type: "address",
         },
         {
-            indexed: true,
-            internalType: "address",
-            name: "to",
-            type: "address",
+          indexed: true,
+          internalType: "address",
+          name: "owner",
+          type: "address",
         },
         {
-            indexed: true,
-            internalType: "uint256",
-            name: "tokenId",
-            type: "uint256",
+          indexed: true,
+          internalType: "int24",
+          name: "tickLower",
+          type: "int24",
         },
-    ],
-    name: "Transfer",
-    type: "event",
-}
+        {
+          indexed: true,
+          internalType: "int24",
+          name: "tickUpper",
+          type: "int24",
+        },
+        {
+          indexed: false,
+          internalType: "uint128",
+          name: "amount",
+          type: "uint128",
+        },
+        {
+          indexed: false,
+          internalType: "uint256",
+          name: "amount0",
+          type: "uint256",
+        },
+        {
+          indexed: false,
+          internalType: "uint256",
+          name: "amount1",
+          type: "uint256",
+        },
+      ],
+      name: "Mint",
+      type: "event",
+    },
 ```
 
-const fetchTransferEvents = async (fromBlock, toBlock) => {
-    const transferTopic = ethers.id("Transfer(address,address,uint256)");
-    const filter = {
-        address: nfpmcontract,
-        fromBlock,
-        toBlock,
-        topics: [transferTopic],
-    };
+- We can interpret that the "Mint" is an "event" 
+- The following is extracted from the ABI: sender (address), owner (address), tickLower (int24), tickUpper (int24), amount (uint128), amount0 (uint256) and amount1 (uin256)
+- To get the event signature, note that no spaces are allowed and we do not include the names. Just the types. Lastly, while sender is indexed, this is not going to be seen in topics[0] as the sender will be replaced by the event signature. The sender address can be retrieved from the data.
 
-    const logs = await provider.getLogs(filter);
-    for (const log of logs) {
-        const [fromTopic, toTopic, tokenIdTopic] = log.topics.slice(1);
-        const from = ethers.getAddress("0x" + fromTopic.slice(26));
-        const to = ethers.getAddress("0x" + toTopic.slice(26));
-        const tokenId = BigInt(tokenIdTopic).toString();
-
-        console.log(`Transfer detected: TokenID ${tokenId} from ${from} to ${to}`);
-
-        await supabase
-            .from("lp_positions")
-            .update({ owner: to })
-            .eq("position_id", tokenId);
-    }
-};
-
-// Function to fetch liquidity events
-const fetchLiquidityEvents = async (fromBlock, toBlock) => {
-    console.log("Fetching liquidity events...");
+```javascript
     const mintTopic = ethers.id(
         "Mint(address,address,int24,int24,uint128,uint256,uint256)"
     );
-    const burnTopic = ethers.id(
-        "Burn(address,int24,int24,uint128,uint256,uint256)"
+```
+
+- Below is an example of how to fetch the indexed events and data events for a mint event. In each case, we are formatting the data based on the ABI.
+
+```javascript
+const fetchLiquidityEvents = async (fromBlock, toBlock) => {
+
+    // we first get the event signature for the mintTopic which reflects what is in the ABI for what is emitted in the event when the Mint function is used 
+    const mintTopic = ethers.id(
+        "Mint(address,address,int24,int24,uint128,uint256,uint256)"
     );
-    const increaseLiquidityTopic = ethers.id(
-        "IncreaseLiquidity(uint256,uint128,uint256,uint256)"
-    );
-    const decreaseLiquidityTopic = ethers.id(
-        "DecreaseLiquidity(uint256,uint128,uint256,uint256)"
-    );
+    
+    // the filter then isolates where we are finding the event signature (the contract address) and the blocks we are searching for the event signature occuring
 
     const mintfilter = {
         address: poolContractAddress,
@@ -141,139 +169,90 @@ const fetchLiquidityEvents = async (fromBlock, toBlock) => {
         topics: [mintTopic],
     };
 
-    const burnfilter = {
-        address: poolContractAddress,
-        fromBlock: fromBlock,
-        toBlock: toBlock,
-        topics: [burnTopic],
-    };
-
-    const filterIncreaseLiquidity = {
-        address: nfpmcontract,
-        fromBlock: fromBlock,
-        toBlock: toBlock,
-        topics: [increaseLiquidityTopic],
-    };
-
-    const filterDecreaseLiquidity = {
-        address: nfpmcontract,
-        fromBlock: fromBlock,
-        toBlock: toBlock,
-        topics: [decreaseLiquidityTopic],
-    };
+    // we now use our provider to get the logs using ethers library and the getLogs function
 
     try {
         const logsMint = await provider.getLogs(filterMint);
-        const logsBurn = await provider.getLogs(filterBurn);
-        const logsIncreaseLiquidity = await provider.getLogs(filterIncreaseLiquidity);
-        const logsDecreaseLiquidity = await provider.getLogs(filterDecreaseLiquidity);
 
-        console.log(`Found ${logsMint.length} for mint logs`);
+        // for each of the Mint functions emitting events, we extract the owner, tickLower and tickUpper (excluding the first topic which is the event signature)
 
         for (const log of logsMint) {
             const [ownerTopic, tickLowerTopic, tickUpperTopic] = log.topics.slice(1);
 
+            // We format the destructured array variables based on the ABI. 
+            // For example, we know tickLower and tickUpper are int24
             const owner = ethers.getAddress("0x" + ownerTopic.slice(26));
-            const tickLower = decodeInt24(tickLowerTopic);
-            const tickUpper = decodeInt24(tickUpperTopic);
+            const tickLower = ethers.AbiCoder.defaultAbiCoder().decode(["int24"], tickLowerTopic)[0];
+            const tickUpper = ethers.AbiCoder.defaultAbiCoder().decode(["int24"], tickUpperTopic)[0];
 
-            console.log(owner, tickLower.toString(), tickUpper.toString());
-
+            // For the remaining being decoded, we search the data field instead of the indexed topics
             const abiCoder = new ethers.AbiCoder();
             const [sender, amount, amount0, amount1] = abiCoder.decode(
                 ["address", "uint128", "uint256", "uint256"],
                 log.data
             );
 
-            console.log(amount.toString(), amount0.toString(), amount1.toString());
-
-            const block = await provider.getBlock(log.blockNumber);
+            // below is an example of what we may want to store into supabase
 
             console.log("Mint event detected:", {
                 sender,
                 owner,
                 tickLower: tickLower.toString(),
                 tickUpper: tickUpper.toString(),
-                amount: amount.toString(),
-                amount0: amount0.toString(),
-                amount1: amount1.toString(),
-                transactionHash: log.transactionHash,
-                timestamp: new Date(block.timestamp * 1000).toISOString(),
+                amount: ethers.formatUnits(amount,18),
+                amount0: ethers.formatUnits(amount0,18),
+                amount1: ethers.formatUnits(amount1,18),
             });
 
-            const { data: insertedData, error } = await supabase
-                .from("lp_positions")
-                .insert([
-                    {
-                        position_id: log.transactionHash,
-                        sender: sender,
-                        owner: owner,
-                        tick_lower: tickLower.toString(),
-                        tick_upper: tickUpper.toString(),
-                        liquidity: amount.toString(),
-                        amount0: amount0.toString(),
-                        amount1: amount1.toString(),
-                        timestamp: new Date(block.timestamp * 1000),
-                    },
-                ]);
+```
+3. **Adding to Database**: 
 
-            if (error) {
-                console.error("Error inserting data into Supabase:", error);
-            } else {
-                console.log("Data inserted into Supabase:", insertedData);
-            }
-        }
-    } catch (error) {
-        console.error("Error fetching logs:", error);
-    }
-};
+- in order to insert into supabase, we need to create the table. Similar to databases, we need to specify the type for each database column
 
-// Function to fetch all events
-const fetchEvents = async () => {
-    try {
-        console.log("Fetching events...");
-        const latestBlock = await provider.getBlockNumber();
-        const fromBlock = latestBlock - 500;
-
-        console.log(
-            `Fetching data from latest block: ${latestBlock} to ${fromBlock}`
-        );
-
-        await fetchTransferEvents(fromBlock, latestBlock);
-        await fetchLiquidityEvents(fromBlock, latestBlock);
-    } catch (error) {
-        console.error("Error fetching events:", error);
-    }
-};
-
-// Start the application and set interval to fetch events every 2 minutes
-console.log("Starting application...");
-setInterval(fetchEvents, 120000);
-console.log("Application started. Fetching Mint events every 2 minutes.");
+```javascript
+CREATE TABLE lp_positions (
+  position_id TEXT PRIMARY KEY,  -- This will store the transaction hash (event.transactionHash)
+  owner TEXT NOT NULL,           -- The owner address
+  sender TEXT NOT NULL,          -- The sender address 
+  tick_lower INTEGER NOT NULL,   -- The lower tick boundary
+  tick_upper INTEGER NOT NULL,   -- The upper tick boundary
+  liquidity NUMERIC NOT NULL,    -- The amount of liquidity added
+  amount0 NUMERIC NOT NULL,      -- The amount of token0 added
+  amount1 NUMERIC NOT NULL,      -- The amount of token1 added
+  timestamp TIMESTAMP NOT NULL   -- The timestamp of the event
+);
 ```
 
+- Once the table is created, we can add the following into the script so that we can insert it directly to the table "lp_positions"
 
-2. **Supabase Client Initialization**: 
-   - `const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);` initializes the Supabase client using environment variables.
+```javascript
 
-3. **Ethereum Provider Initialization**: 
-   - `const provider = new ethers.JsonRpcProvider(process.env.CONFLUXSCAN_URL);` initializes the Ethereum provider.
+const { data: insertedData, error } = await supabase.from("lp_positions").insert([
+    {
+        position_id: log.transactionHash,
+        sender: sender,
+        owner: owner,
+        tick_lower: tickLower.toString(),
+        tick_upper: tickUpper.toString(),
+        liquidity: amount.toString(),
+        amount0: amount0.toString(),
+        amount1: amount1.toString(),
+        timestamp: new Date(block.timestamp * 1000),
+    },
+    ]);
+```
 
-4. **Contract Initialization**: 
-   - `const contract = new ethers.Contract(poolContractAddress, poolABI, provider);` and `const nfpmcontract = new ethers.Contract(nonFungiblePositionManagerContractAddress, nfpmABI, provider);` initialize the contracts.
+4. **Other**: 
+   - To get the current block, you can query the provider
 
-5. **Helper Function**: 
-   - `function decodeInt24(hexString) { ... }` decodes `int24` values from hexadecimal strings.
+```javascript
+    const block = await provider.getBlock(log.blockNumber);
+    const timestamp = new Date(block.timestamp * 1000).toISOString();
+```
 
-6. **Fetch Transfer Events**: 
-   - `const fetchTransferEvents = async (fromBlock, toBlock) => { ... }` fetches and processes transfer events.
-
-7. **Fetch Liquidity Events**: 
-   - `const fetchLiquidityEvents = async (fromBlock, toBlock) => { ... }` fetches and processes liquidity events.
-
-8. **Fetch All Events**: 
-   - `const fetchEvents = async () => { ... }` fetches both transfer and liquidity events.
+- the block retrieves the most current block that can be used in the filters that are used in the getLogs 
+- pick the number of blocks to start extracting data in specifying the "from" block (i.e. how many blocks ago from current block. Instead of starting from genesis, can match this with the interval of frequency in which events are fetched
 
 9. **Application Start**: 
-   - `setInterval(fetchEvents, 120000);` sets an interval to fetch events every 2 minutes.
+   - `setInterval(fetchEvents, 60000);` sets an interval to fetch events every 1 minute or the interval you desire to capture the block range specified
 
