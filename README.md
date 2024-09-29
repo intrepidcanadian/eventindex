@@ -91,7 +91,7 @@ Here is an example of how to use script to fetch events and the breakdown of the
 
 1. **Environment Setup**: 
    - `require("dotenv").config();` loads environment variables from a `.env` file. This is where I place the following environmental variables. (1) The Supabase URL, (2) The Supabase Key and (3) The RPC URL where you can append the API key for higher rate limits to read the Conflux blockchain. You do not need to pay to get a higher rate limit for the testnet - however you do need to obtain an API key. [Network Endpoints](https://doc.confluxnetwork.org/docs/espace/network-endpoints)
-   - `const { ethers } = require("ethers");` and `const { createClient } = require("@supabase/supabase-js");` import necessary libraries. In this case, the ethers library is used to read the events, extract event signatures, decode data and format numbers. There are numerous emitted per various contracts (i.e. pool address, and the non-fungible position manager) and the supabase is used to create a connection so that data can be inserted into its SQL server.
+   - `const { ethers } = require("ethers");` and `const { createClient } = require("@supabase/supabase-js");` import necessary libraries. In this case, the ethers library is used to read the events, extract event signatures, decode data and format numbers. There are numerous emitted per various contracts (i.e. pool address, and the non-fungible position manager) and the supabase is used to create a connection so that data can be inserted into its PostgreSQL server.
 
 ```javascript
 require("dotenv").config();
