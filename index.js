@@ -14,7 +14,7 @@ const supabase = createClient(
   process.env.SUPABASE_KEY
 );
 
-const provider = new ethers.JsonRpcProvider(process.env.CONFLUXSCAN_URL);
+const provider = new ethers.JsonRpcProvider(process.env.CONFLUXRPC_URL);
 
 const fetchTransferEvents = async (fromBlock, toBlock) => {
   const transferTopic = ethers.id("Transfer(address,address,uint256)");
@@ -231,6 +231,30 @@ const fetchLiquidityEvents = async (fromBlock, toBlock) => {
           transactionHash: log.transactionHash,
           timestamp: new Date(block.timestamp * 1000).toISOString(),
         });
+
+        const { data: insertedData, error } = await supabase
+        .from("lp_positions")
+        .upsert([
+          {
+            transactionhash: log.transactionHash,
+            owner: owner,
+            sender: sender,
+            ticklower: tickLower.toString(),
+            tickupper: tickUpper.toString(),
+            liquidity: ethers.formatUnits(amount, 18),
+            amount0: ethers.formatUnits(amount0, 18),
+            amount1: ethers.formatUnits(amount1, 18),
+            timestamp: new Date(block.timestamp * 1000).toISOString(),
+          },
+        ]);
+
+        if (error) {
+          console.error("Error inserting data:", error);
+        } else {
+          console.log("Data inserted successfully");
+        }
+
+
       }
     } catch (error) {
       console.error("Error fetching mint logs:", error);

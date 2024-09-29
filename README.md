@@ -1,3 +1,27 @@
+# To start using the example repo
+
+To use the repo, you need to provide the following to the env file.
+
+- SUPABASE_URL
+- SUPABASE_KEY
+- CONFLUXRPC_URL
+
+Add the schema of the data into your supabase (which uses PostgreSQL) to allow the events to be inserted into your database. Below is an example that records increase the mint event
+
+```javascript
+CREATE TABLE lp_positions (
+  transactionHash VARCHAR(66) PRIMARY KEY,
+  owner VARCHAR(42) NOT NULL,
+  sender VARCHAR(42) NOT NULL,
+  tickLower INT NOT NULL,
+  tickUpper INT NOT NULL,
+  liquidity DECIMAL(38, 18) NOT NULL,
+  amount0 DECIMAL(38, 18) NOT NULL,
+  amount1 DECIMAL(38, 18) NOT NULL,
+  timestamp TIMESTAMP NOT NULL
+);
+```
+
 # Reading Events & Logs on Block Explorer
 
 This guide will help you understand how to read events on a block explorer for your Conflux App project by setting up a backend database on supabase.
@@ -81,7 +105,7 @@ const supabase = createClient(
 );
 
 // Initialize Ethereum provider
-const provider = new ethers.JsonRpcProvider(process.env.CONFLUXSCAN_URL);
+const provider = new ethers.JsonRpcProvider(process.env.CONFLUXRPC_URL);
 ```
 
 2. **Fetching Events**: 
@@ -207,7 +231,7 @@ const fetchLiquidityEvents = async (fromBlock, toBlock) => {
 ```
 3. **Adding to Database**: 
 
-- in order to insert into supabase, we need to create the table. Similar to databases, we need to specify the type for each database column
+- in order to insert into supabase, we need to create the table. Similar to databases, we need to specify the type for each database column and create a schema.
 
 ```javascript
 CREATE TABLE lp_positions (
