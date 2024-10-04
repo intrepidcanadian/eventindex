@@ -24,7 +24,7 @@ CREATE TABLE lp_positions (
 
 # Explanation Video
 
-[Explanation of Reading Event Logs]([https://evmtestnet.confluxscan.io/tx/0xf2485b451b4dafe79542da7eef666c6710921e1e9c51a041bffea65492b32fcc?tab=logs](https://www.loom.com/share/859bf23a98c7467292f52c0ce949e4e1))
+[Explanation of Reading Event Logs](https://www.loom.com/share/859bf23a98c7467292f52c0ce949e4e1)
 
 # Reading Events & Logs on Block Explorer
 
