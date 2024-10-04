@@ -49,7 +49,7 @@ const transferTopic = ethers.id("Transfer(address,address,uint256)");
 
 - Here, we are querying the blockchain explorer based on contract address, block range, and by the event signature. 
 
-- In the id function, we are hashing the function and the types of the events in the transfer function. Note that at maximum, there are three indexed fields (in addition to the event signature). In this case, the first being the event signature (which is the hash of "Transfer(address,address,uint256)", the second being the address from, and third being the address to).
+- In the id function, we are hashing the function and the types of the events in the transfer function. Note that at maximum, there are four indexed fields (in addition to the event signature). In this case, the first being the event signature (which is the hash of "Transfer(address,address,uint256)", the second being the address from, and third being the address to).
 
 - What is important to note is that the first array of the log is always the event signature hash. 
 
@@ -76,7 +76,7 @@ for (const log of logs) {
 }
 ```
 
-- Since the number o USDC tokens is not indexed, to extract the value, we would need to decode the data field. The data field of USDC is "uint256" and we need to specify that is what we are decoding for.
+- Since the number of USDC tokens is not indexed, to extract the value, we would need to decode the data field. The data field of USDC is "uint256" and we need to specify that is what we are decoding for.
 
 ```javascript
     const abiCoder = new ethers.AbiCoder();
